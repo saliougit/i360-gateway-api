@@ -1,3 +1,109 @@
+# # server:
+# #   port: ${SERVER_PORT:8080}
+
+# # spring:
+# #   main:
+# #     allow-bean-definition-overriding: true
+# #     web-application-type: reactive
+# #   application:
+# #     name: lightweight-gateway
+# #   security:
+# #     jwt:
+# #       secret: ${JWT_SECRET}
+# #       expiration: ${JWT_EXPIRATION}
+# #   cloud:
+# #     gateway:
+# #       default-filters:
+# #         - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
+# #       globalcors:
+# #         cors-configurations:
+# #           '[/**]':
+# #             allowedOrigins: "*"
+# #             allowedMethods: "*"
+# #             allowedHeaders: "*"
+# #       routes:
+# #         - id: auth_route
+# #           uri: http://localhost:8090
+# #           predicates:
+# #             - Path=/auth/**
+# #           filters:
+# #             - PreserveHostHeader
+# #         - id: service_aggregation_route
+# #           uri: http://localhost:8090
+# #           predicates:
+# #             - Path=/api/**
+
+# # # Configuration URLs for OpenAPI
+# # openapi:
+# #   dev-url: http://localhost:8080
+# #   prod-url: https://api.innov4africa.sn
+
+# # logging:
+# #   level:
+# #     com.innov4africa: DEBUG
+# #     org.springframework.web.reactive: DEBUG
+# #     reactor.netty: DEBUG
+# #     org.springframework.cloud.gateway: DEBUG
+# #     org.springframework.security: DEBUG
+
+# server:
+#   port: ${SERVER_PORT:8080}
+
+# spring:
+#   main:
+#     allow-bean-definition-overriding: true
+#     web-application-type: reactive
+#   application:
+#     name: lightweight-gateway
+#   security:
+#     jwt:
+#       secret: ${JWT_SECRET} # Assurez-vous que cette variable d'environnement est bien définie
+#       expiration: ${JWT_EXPIRATION} # Assurez-vous que cette variable d'environnement est bien définie
+#   cloud:
+#     gateway:
+#       default-filters:
+#         - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
+#       globalcors:
+#         cors-configurations:
+#           '[/**]':
+#             allowedOrigins: "*"
+#             allowedMethods: "*"
+#             allowedHeaders: "*"
+#       routes:
+#         - id: auth_route
+#           uri: http://localhost:8090
+#           predicates:
+#             - Path=/auth/**
+#           filters:
+#             - PreserveHostHeader
+#             # IMPORTANT: Votre JwtAuthenticationFilter NE DOIT PAS être appliqué ici.
+#             # Les routes sous /auth/** (comme /auth/login) sont là pour OBTENIR un JWT,
+#             # elles ne nécessitent pas de JWT pour y accéder.
+            
+#         - id: service_aggregation_route
+#           uri: http://localhost:8090
+#           predicates:
+#             # Si vos routes protégées commencent par /api/ (comme /api/ipay/solde),
+#             # Laissez Path=/api/**.
+#             # Si elles commencent par /ipay/ (comme /ipay/solde directement),
+#             # changez le prédicat en Path=/ipay/**
+#             - Path=/api/** # ou /ipay/** si c'est le cas          filters:
+#             - name: JwtAuthentication # The filter factory will look for JwtAuthenticationFactory
+#             - PreserveHostHeader
+
+# # Configuration URLs for OpenAPI
+# openapi:
+#   dev-url: http://localhost:8080
+#   prod-url: https://api.innov4africa.sn
+
+# logging:
+#   level:
+#     com.innov4africa: DEBUG
+#     org.springframework.web.reactive: DEBUG
+#     reactor.netty: DEBUG
+#     org.springframework.cloud.gateway: DEBUG
+#     org.springframework.security: DEBUG
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -28,10 +134,17 @@ spring:
             - Path=/auth/**
           filters:
             - PreserveHostHeader
+            # REMARQUE : JwtAuthenticationFilter NE DOIT PAS être appliqué ici.
+            # Les routes sous /auth/** (comme /auth/login) sont là pour OBTENIR un JWT,
+            # elles ne nécessitent pas de JWT pour y accéder.
+            
         - id: service_aggregation_route
           uri: http://localhost:8090
           predicates:
-            - Path=/api/**
+            - Path=/ipay/**
+          filters: # <--- Assurez-vous que 'filters' est correctement indenté ici
+            - name: JwtAuthentication # Votre filtre JwtAuthentication
+            - PreserveHostHeader # Ce filtre doit être ici !
 
 # Configuration URLs for OpenAPI
 openapi:
