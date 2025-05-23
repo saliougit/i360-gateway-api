@@ -1,0 +1,47 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  main:
+    allow-bean-definition-overriding: true
+    web-application-type: reactive
+  application:
+    name: lightweight-gateway
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      expiration: ${JWT_EXPIRATION}
+  cloud:
+    gateway:
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+      routes:
+        - id: auth_route
+          uri: http://localhost:8090
+          predicates:
+            - Path=/auth/**
+          filters:
+            - PreserveHostHeader
+        - id: service_aggregation_route
+          uri: http://localhost:8090
+          predicates:
+            - Path=/api/**
+
+# Configuration URLs for OpenAPI
+openapi:
+  dev-url: http://localhost:8080
+  prod-url: https://api.innov4africa.sn
+
+logging:
+  level:
+    com.innov4africa: DEBUG
+    org.springframework.web.reactive: DEBUG
+    reactor.netty: DEBUG
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.security: DEBUG

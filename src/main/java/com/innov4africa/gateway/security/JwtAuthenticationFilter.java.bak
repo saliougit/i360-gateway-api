@@ -1,0 +1,4 @@
+package com.innov4africa.gateway.security;
+
+// Cette classe a été déplacée vers com.innov4africa.gateway.config.JwtAuthenticationFilter
+// Fichier conservé en .bak pour référence
