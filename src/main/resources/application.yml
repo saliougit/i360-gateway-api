@@ -53,17 +53,16 @@ server:
   port: ${SERVER_PORT:8080}
 
 spring:
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 60000
   main:
     allow-bean-definition-overriding: true
     web-application-type: reactive
   application:
     name: lightweight-gateway
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      timeout: 2000
-      connect-timeout: 2000
   security:
     jwt:
       secret: ${JWT_SECRET:58703273357638792F423F4528482B4D6251655468576D5A7134743677397A24}
@@ -72,9 +71,6 @@ spring:
     gateway:
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
-        - name: JwtAuthentication
-          args:
-            enabled: true
       globalcors:
         cors-configurations:
           '[/**]':
@@ -94,13 +90,9 @@ spring:
           predicates:
             - Path=/ipay/**
           filters:
+            - name: JwtAuthentication
             - AddRequestHeader=X-Gateway-Source, api-gateway
             - PreserveHostHeader
-
-# Configuration URLs for OpenAPI
-openapi:
-  dev-url: http://localhost:8080
-  prod-url: https://api.innov4africa.sn
 
 logging:
   level:
@@ -109,3 +101,7 @@ logging:
     reactor.netty: DEBUG
     org.springframework.cloud.gateway: DEBUG
     org.springframework.security: DEBUG
+
+openapi:
+  dev-url: http://localhost:8080
+  prod-url: https://api.innov4africa.sn

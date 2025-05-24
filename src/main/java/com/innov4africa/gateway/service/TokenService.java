@@ -18,11 +18,12 @@ public class TokenService {
     private final JwtUtil jwtUtil;
     private final Counter redisDownCounter;
     private final Counter fallbackJwtValidationCounter;
-    private static final String USER_TOKEN_KEY_PREFIX = "user:";
+    private static final String USER_TOKEN_KEY_PREFIX = "user_tokens:";
 
     private volatile boolean isRedisDown = false;    
+
     public TokenService(
-            @Qualifier("reactiveStringRedisTemplate") ReactiveRedisTemplate<String, String> redisTemplate, 
+            @Qualifier("tokenRedisTemplate") ReactiveRedisTemplate<String, String> redisTemplate, 
             JwtUtil jwtUtil,
             Counter redisDownCounter,
             Counter fallbackJwtValidationCounter) {
@@ -30,40 +31,59 @@ public class TokenService {
         this.jwtUtil = jwtUtil;
         this.redisDownCounter = redisDownCounter;
         this.fallbackJwtValidationCounter = fallbackJwtValidationCounter;
-    }    public Mono<Boolean> validateToken(String token, String username) {
+    }
+
+    public Mono<Boolean> validateToken(String token, String username) {
         // 1. Valider d'abord la signature JWT
         if (!jwtUtil.validateToken(token)) {
+            logger.warn("Token JWT invalide pour l'utilisateur: {}", username);
             return Mono.just(false);
         }
 
-        // 2. Si Redis est déjà marqué comme down, passer directement en mode dégradé
+        // Extraire le username du token pour double vérification
+        String tokenUsername = jwtUtil.extractUsername(token);
+        if (!username.equals(tokenUsername)) {
+            logger.warn("Username mismatch. Token: {}, Request: {}", tokenUsername, username);
+            return Mono.just(false);
+        }
+
+        // 2. Si Redis est down, on refuse le token
         if (isRedisDown) {
-            logger.warn("Redis est down, validation en mode dégradé pour l'utilisateur: {}", username);
+            logger.warn("Redis est down, token refusé pour l'utilisateur: {}", username);
             fallbackJwtValidationCounter.increment();
-            return Mono.just(true);
+            return Mono.just(false);
         }
 
         // 3. Vérifier le token dans Redis
+        String key = USER_TOKEN_KEY_PREFIX + username;
         return redisTemplate.opsForValue()
-            .get(USER_TOKEN_KEY_PREFIX + username)
+            .get(key)
             .map(storedToken -> {
-                // Token trouvé dans Redis
                 isRedisDown = false; // Reset le flag si Redis répond
-                return storedToken.equals(token);
+                boolean isValid = token.equals(storedToken);
+                if (!isValid) {
+                    logger.warn("Token non valide pour l'utilisateur: {}. Token ne correspond pas à celui stocké.", username);
+                }
+                return isValid;
             })
             .onErrorResume(e -> {
                 logger.error("Erreur Redis lors de la validation du token: {}", e.getMessage());
                 if (!isRedisDown) {
-                    // Premier échec Redis
                     isRedisDown = true;
                     redisDownCounter.increment();
-                    logger.warn("Passage en mode dégradé - validation JWT uniquement");
+                    logger.warn("Redis down - refus du token");
                 }
-                fallbackJwtValidationCounter.increment();
-                return Mono.just(true); // Mode dégradé : validation JWT uniquement
+                return Mono.just(false);
             })
-            .defaultIfEmpty(true); // Si pas trouvé dans Redis, considérer valide (cas migration)
-    }    public Mono<Void> saveToken(String username, String token) {
+            .defaultIfEmpty(false);
+    }
+
+    public Mono<Void> saveToken(String username, String token) {
+        if (username == null || username.trim().isEmpty()) {
+            logger.error("Tentative de sauvegarde de token avec un username null ou vide");
+            return Mono.empty();
+        }
+
         // Si Redis est down, ne pas essayer de sauvegarder
         if (isRedisDown) {
             logger.warn("Redis est down, impossible de sauvegarder le token pour: {}", username);
@@ -74,11 +94,11 @@ public class TokenService {
         Long expiration = jwtUtil.extractExpiration(token).getTime() - System.currentTimeMillis();
         Duration ttl = Duration.ofMillis(expiration);
 
-        return invalidateToken(username) // D'abord invalider l'ancien token
-            .then(redisTemplate.opsForValue()
-                .set(USER_TOKEN_KEY_PREFIX + username, token, ttl))
+        String key = USER_TOKEN_KEY_PREFIX + username;
+        return redisTemplate.opsForValue()
+            .set(key, token, ttl)
             .doOnSuccess(success -> {
-                isRedisDown = false; // Reset le flag si Redis répond
+                isRedisDown = false;
                 logger.debug("Token sauvegardé avec succès pour: {}", username);
             })
             .onErrorResume(e -> {
@@ -90,16 +110,19 @@ public class TokenService {
                 return Mono.empty();
             })
             .then();
-    }    public Mono<Boolean> invalidateToken(String username) {
+    }
+
+    public Mono<Boolean> invalidateToken(String username) {
         if (isRedisDown) {
-            logger.warn("Redis est down, impossible d'invalider le token pour: {}", username);
+            logger.warn("Redis est down, impossible d'invalider les tokens pour: {}", username);
             return Mono.just(false);
         }
 
-        return redisTemplate.delete(USER_TOKEN_KEY_PREFIX + username)
-            .map(deletedCount -> deletedCount > 0) // Convertit Long en Boolean
+        String key = USER_TOKEN_KEY_PREFIX + username;
+        return redisTemplate.delete(key)
+            .map(deletedCount -> deletedCount > 0)
             .onErrorResume(e -> {
-                logger.error("Erreur Redis lors de l'invalidation du token: {}", e.getMessage());
+                logger.error("Erreur Redis lors de l'invalidation des tokens: {}", e.getMessage());
                 if (!isRedisDown) {
                     isRedisDown = true;
                     redisDownCounter.increment();
