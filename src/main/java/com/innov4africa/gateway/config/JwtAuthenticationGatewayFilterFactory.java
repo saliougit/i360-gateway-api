@@ -1,94 +1,97 @@
 package com.innov4africa.gateway.config;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.innov4africa.gateway.security.JwtUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
-import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
-import org.springframework.http.HttpHeaders;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.http.server.reactive.ServerHttpResponse;
 import reactor.core.publisher.Mono;
-import com.innov4africa.gateway.security.JwtUtil;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 @Component
 public class JwtAuthenticationGatewayFilterFactory extends AbstractGatewayFilterFactory<JwtAuthenticationGatewayFilterFactory.Config> {
 
-    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationGatewayFilterFactory.class);
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationGatewayFilterFactory.class);
+    private final JwtUtil jwtUtil;
+    private final ObjectMapper objectMapper;
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
-    public JwtAuthenticationGatewayFilterFactory() {
+    public JwtAuthenticationGatewayFilterFactory(JwtUtil jwtUtil, ObjectMapper objectMapper) {
         super(Config.class);
-    }
-
-    public static class Config {
-        // Aucune configuration spécifique nécessaire pour l'instant
+        this.jwtUtil = jwtUtil;
+        this.objectMapper = objectMapper;
     }
 
     @Override
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
-            String path = exchange.getRequest().getPath().value();
+            ServerHttpRequest request = exchange.getRequest();
             
-            logger.debug("--- START JWT GatewayFilter for request path: {} ---", path); 
-
-            String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-            logger.debug("Authorization Header for {}: {}", path, authHeader != null ? authHeader : "null");
-
+            // 1. Vérifier la présence du token
+            String authHeader = request.getHeaders().getFirst("Authorization");
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                logger.debug("Missing or invalid Authorization header for path: {}", path);
-                return sendUnauthorizedResponse(exchange, "Token d'authentification manquant ou invalide");
+                log.warn("Tentative d'accès sans token : {}", request.getPath());
+                return createErrorResponse(exchange, "Token d'authentification manquant", HttpStatus.UNAUTHORIZED);
             }
 
             String token = authHeader.substring(7);
-            logger.debug("Extracted token for {}: {}", path, token);
 
+            // 2. Valider le token
             try {
-                if (jwtUtil.validateToken(token)) {
-                    String username = jwtUtil.extractUsername(token);
-                    logger.debug("Valid JWT token for user: {} accessing path: {}", username, path);
-                    
-                    UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                        username,
-                        null,
-                        Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
-                    );
-
-                    return chain.filter(exchange)
-                                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
-
-                } else {
-                    logger.warn("JWTUtil.validateToken returned FALSE for token: {}", token);
-                    return sendUnauthorizedResponse(exchange, "Token d'authentification invalide");
+                if (!jwtUtil.validateToken(token)) {
+                    log.warn("Token invalide détecté pour : {}", request.getPath());
+                    return createErrorResponse(exchange, "Token invalide ou expiré", HttpStatus.FORBIDDEN);
                 }
+
+                // 3. Extraire les informations utilisateur
+                String username = jwtUtil.extractUsername(token);
+                log.info("Accès autorisé pour l'utilisateur {} à {}", username, request.getPath());
+
+                // 4. Enrichir la requête avec les informations validées
+                ServerHttpRequest mutatedRequest = request.mutate()
+                    .header("X-Authenticated-User", username)
+                    .header("X-Gateway-Validated", "true")
+                    .build();
+
+                // 5. Transmettre au service avec les informations enrichies
+                return chain.filter(exchange.mutate().request(mutatedRequest).build());
+
             } catch (Exception e) {
-                logger.error("Exception during JWT validation for path: {}. Error: {}", path, e.getMessage(), e);
-                return sendUnauthorizedResponse(exchange, "Token d'authentification expiré ou invalide");
+                log.error("Erreur lors de la validation du token", e);
+                return createErrorResponse(exchange, "Erreur de validation du token", HttpStatus.FORBIDDEN);
             }
         };
     }
 
-    private Mono<Void> sendUnauthorizedResponse(ServerWebExchange exchange, String message) {
+    private Mono<Void> createErrorResponse(ServerWebExchange exchange, String message, HttpStatus status) {
         ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        response.setStatusCode(status);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-        
-        String jsonBody = String.format("{\"status\":\"error\",\"message\":\"%s\"}", message);
-        byte[] bytes = jsonBody.getBytes(StandardCharsets.UTF_8);
-        
-        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)))
-                        .then(response.setComplete());
+
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("status", "error");
+        errorResponse.put("message", message);
+
+        try {
+            byte[] bytes = objectMapper.writeValueAsBytes(errorResponse);
+            DataBuffer buffer = response.bufferFactory().wrap(bytes);
+            return response.writeWith(Mono.just(buffer));
+        } catch (JsonProcessingException e) {
+            return Mono.error(e);
+        }
+    }
+
+    public static class Config {
+        // Configuration si nécessaire
     }
 }

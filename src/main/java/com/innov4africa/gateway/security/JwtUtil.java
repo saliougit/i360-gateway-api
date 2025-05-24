@@ -50,15 +50,29 @@ public class JwtUtil {
 
     private Boolean isTokenExpired(String token) {
         return extractExpiration(token).before(new Date());
-    }
-
-    public Boolean validateToken(String token) {
+    }    public Boolean validateToken(String token) {
         try {
-            Jwts.parser()
+            // 1. D'abord vérifier la signature et l'expiration
+            Claims claims = Jwts.parser()
                 .verifyWith(getSigningKey())
                 .build()
-                .parseSignedClaims(token);
-            return !isTokenExpired(token);
+                .parseSignedClaims(token)
+                .getPayload();
+
+            if (isTokenExpired(token)) {
+                return false;
+            }
+
+            // 2. Vérifier les claims requis pour iPay
+            String ipayToken = claims.get("ipayToken", String.class);
+            String accountIdIPay = claims.get("accountIdIPay", String.class);
+            String userId = claims.get("userId", String.class);
+
+            // Vérifier que les claims essentiels sont présents
+            return ipayToken != null && !ipayToken.isEmpty() 
+                && accountIdIPay != null && !accountIdIPay.isEmpty()
+                && userId != null && !userId.isEmpty();
+
         } catch (Exception e) {
             return false;
         }

@@ -1,11 +1,12 @@
 package com.innov4africa.gateway.config;
 
+import com.innov4africa.gateway.security.JwtUtil;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
-import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
@@ -15,6 +16,11 @@ import java.util.List;
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
+    private final JwtUtil jwtUtil;
+
+    public SecurityConfig(JwtUtil jwtUtil) {
+        this.jwtUtil = jwtUtil;
+    }
 
     private static final String[] PUBLIC_PATHS = {
         "/auth/**",
@@ -22,35 +28,22 @@ public class SecurityConfig {
         "/swagger-ui/**",
         "/swagger-ui.html",
         "/webjars/**",
-        "/actuator/**",
-        "/ipay/**"  // Ajout du chemin ipay
+        "/actuator/**"
     };
 
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
         return http
-                .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                // Use NoOpServerSecurityContextRepository to avoid storing security context
-                // and rely only on JWT tokens for each request
-                .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
-                .authorizeExchange(exchanges -> exchanges
-                        // Public paths that don't require authentication,
-                        // these will be handled by the Gateway's routing without the JWT filter
-                        .pathMatchers(PUBLIC_PATHS).permitAll()
-                        // All other paths will be handled by the Gateway's routes.
-                        // For authenticated routes, you apply the JwtAuthenticationFilter
-                        // directly in application.yml for those specific routes.
-                        // Here, we just state that all *other* requests must be authenticated
-                        // assuming the GatewayFilter will handle the authentication.
-                        .anyExchange().authenticated()
-                )
-                // Retirez l'ajout direct du filtre ici, car il est maintenant un GatewayFilter
-                // et sera appliqué via application.yml sur des routes spécifiques.
-                // .addFilterAt(jwtAuthenticationFilter, SecurityWebFiltersOrder.AUTHENTICATION)
-                .httpBasic(basic -> basic.disable())
-                .formLogin(form -> form.disable())
-                .build();
+            .csrf(ServerHttpSecurity.CsrfSpec::disable)
+            .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
+            .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .addFilterAt(new JwtAuthenticationFilter(jwtUtil), SecurityWebFiltersOrder.AUTHENTICATION)
+            .authorizeExchange(auth -> auth
+                .pathMatchers(PUBLIC_PATHS).permitAll()
+                .anyExchange().authenticated()
+            )
+            .build();
     }
 
     @Bean
