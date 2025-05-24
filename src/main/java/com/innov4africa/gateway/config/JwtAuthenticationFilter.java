@@ -18,15 +18,18 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 import com.innov4africa.gateway.security.JwtUtil;
+import com.innov4africa.gateway.service.TokenService;
 
 import java.util.Collections;
 
 public class JwtAuthenticationFilter implements WebFilter {
     private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private final JwtUtil jwtUtil;
+    private final TokenService tokenService;
 
-    public JwtAuthenticationFilter(JwtUtil jwtUtil) {
+    public JwtAuthenticationFilter(JwtUtil jwtUtil, TokenService tokenService) {
         this.jwtUtil = jwtUtil;
+        this.tokenService = tokenService;
     }
 
     @NonNull
@@ -36,30 +39,37 @@ public class JwtAuthenticationFilter implements WebFilter {
         logger.debug("Processing request for path: {}", path);
 
         // Vérifier s'il y a un header Authorization
-        String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+        String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);        if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
             try {
-                if (jwtUtil.validateToken(token)) {
-                    String username = jwtUtil.extractUsername(token);
-                    logger.debug("Token validé pour l'utilisateur : {}", username);
-                    
-                    Authentication auth = new UsernamePasswordAuthenticationToken(
-                        username,
-                        null,
-                        Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
-                    );
+                String username = jwtUtil.extractUsername(token);
+                
+                return tokenService.validateToken(token, username)
+                    .flatMap(isValid -> {
+                        if (isValid) {
+                            logger.debug("Token validé pour l'utilisateur : {}", username);
+                            
+                            Authentication auth = new UsernamePasswordAuthenticationToken(
+                                username,
+                                null,
+                                Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+                            );
 
-                    // Ajouter l'authentification au contexte de sécurité
-                    return chain.filter(exchange)
-                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
-                } else {
-                    logger.warn("Token invalide détecté");
-                    return onError(exchange.getResponse(), "Token invalide", HttpStatus.UNAUTHORIZED);
-                }
+                            // Ajouter l'authentification au contexte de sécurité
+                            return chain.filter(exchange)
+                                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(auth));
+                        } else {
+                            logger.warn("Token invalide ou expiré pour l'utilisateur : {}", username);
+                            return onError(exchange.getResponse(), "Token invalide ou expiré", HttpStatus.UNAUTHORIZED);
+                        }
+                    })
+                    .onErrorResume(e -> {
+                        logger.error("Erreur lors de la validation du token", e);
+                        return onError(exchange.getResponse(), "Erreur de validation du token", HttpStatus.UNAUTHORIZED);
+                    });
             } catch (Exception e) {
-                logger.error("Erreur lors de la validation du token", e);
-                return onError(exchange.getResponse(), "Erreur de validation du token", HttpStatus.UNAUTHORIZED);
+                logger.error("Erreur lors de l'extraction du username", e);
+                return onError(exchange.getResponse(), "Token mal formé", HttpStatus.UNAUTHORIZED);
             }
         }
 
