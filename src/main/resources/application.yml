@@ -88,7 +88,17 @@ spring:
         - id: protected_routes
           uri: http://localhost:8090
           predicates:
-            - Path=/ipay/**
+            - Path=/ipay/**, /ishop/**, /ibanking/**, /dashboard/**
+          filters:
+            - name: JwtAuthentication
+            - AddRequestHeader=X-Gateway-Source, api-gateway
+            - PreserveHostHeader
+            
+        # Route par défaut pour bloquer toutes les autres requêtes
+        - id: fallback_route
+          uri: http://localhost:8090
+          predicates:
+            - Path=/**
           filters:
             - name: JwtAuthentication
             - AddRequestHeader=X-Gateway-Source, api-gateway

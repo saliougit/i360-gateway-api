@@ -9,32 +9,36 @@ for /f "tokens=1,* delims==" %%a in (.env) do (
 echo Configuration chargee avec succes
 echo.
 
-REM Vérifier si le conteneur Redis existe et est en cours d'exécution
-powershell -Command "$running = docker ps --filter 'name=redis' --format '{{.Names}}'; $exists = docker ps -a --filter 'name=redis' --format '{{.Names}}'; if($running) { Write-Host 'Redis est en cours d''execution' } elseif($exists) { Write-Host 'Redis existe mais n''est pas en cours d''execution'; exit 1 } else { Write-Host 'Redis n''existe pas'; exit 2 }"
 
-if !errorlevel! == 1 (
-    echo Redemarrage du conteneur Redis existant...
-    powershell -Command "docker start redis"
-    if !errorlevel! == 0 (
-        echo Conteneur Redis redemarre avec succes
-        timeout /t 5 /nobreak > nul
-    ) else (
-        echo Erreur lors du redemarrage de Redis
-        pause
-        exit /b 1
-    )
-) else if !errorlevel! == 2 (
-    echo Creation d'un nouveau conteneur Redis...
-    powershell -Command "docker run --name redis -d -p 6379:6379 redis:latest"
-    if !errorlevel! == 0 (
-        echo Nouveau conteneur Redis cree avec succes
-        timeout /t 5 /nobreak > nul
-    ) else (
-        echo Erreur lors de la creation du conteneur Redis
-        pause
-        exit /b 1
-    )
-)
+@REM --------------REDIS-----------------------
+@REM REM Vérifier si le conteneur Redis existe et est en cours d'exécution
+@REM powershell -Command "$running = docker ps --filter 'name=redis' --format '{{.Names}}'; $exists = docker ps -a --filter 'name=redis' --format '{{.Names}}'; if($running) { Write-Host 'Redis est en cours d''execution' } elseif($exists) { Write-Host 'Redis existe mais n''est pas en cours d''execution'; exit 1 } else { Write-Host 'Redis n''existe pas'; exit 2 }"
+
+@REM if !errorlevel! == 1 (
+@REM     echo Redemarrage du conteneur Redis existant...
+@REM     powershell -Command "docker start redis"
+@REM     if !errorlevel! == 0 (
+@REM         echo Conteneur Redis redemarre avec succes
+@REM         timeout /t 5 /nobreak > nul
+@REM     ) else (
+@REM         echo Erreur lors du redemarrage de Redis
+@REM         pause
+@REM         exit /b 1
+@REM     )
+@REM ) else if !errorlevel! == 2 (
+@REM     echo Creation d'un nouveau conteneur Redis...
+@REM     powershell -Command "docker run --name redis -d -p 6379:6379 redis:latest"
+@REM     if !errorlevel! == 0 (
+@REM         echo Nouveau conteneur Redis cree avec succes
+@REM         timeout /t 5 /nobreak > nul
+@REM     ) else (
+@REM         echo Erreur lors de la creation du conteneur Redis
+@REM         pause
+@REM         exit /b 1
+@REM     )
+@REM )
+
+@REM ------------REDIS-----------------------
 @REM     )
 @REM )
 

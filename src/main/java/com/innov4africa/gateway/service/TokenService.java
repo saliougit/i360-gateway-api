@@ -45,16 +45,14 @@ public class TokenService {
         if (!username.equals(tokenUsername)) {
             logger.warn("Username mismatch. Token: {}, Request: {}", tokenUsername, username);
             return Mono.just(false);
-        }
-
-        // 2. Si Redis est down, on refuse le token
+        }        // 2. Si Redis est down, on accepte le token si le JWT est valide
         if (isRedisDown) {
-            logger.warn("Redis est down, token refusé pour l'utilisateur: {}", username);
+            logger.warn("Redis est down, acceptation du token JWT valide pour l'utilisateur: {}", username);
             fallbackJwtValidationCounter.increment();
-            return Mono.just(false);
+            return Mono.just(true);
         }
 
-        // 3. Vérifier le token dans Redis
+        // 3. Si Redis est up, vérifier le token dans Redis
         String key = USER_TOKEN_KEY_PREFIX + username;
         return redisTemplate.opsForValue()
             .get(key)
@@ -66,14 +64,14 @@ public class TokenService {
                 }
                 return isValid;
             })
-            .onErrorResume(e -> {
-                logger.error("Erreur Redis lors de la validation du token: {}", e.getMessage());
+            .onErrorResume(e -> {                logger.error("Erreur Redis lors de la validation du token: {}", e.getMessage());
                 if (!isRedisDown) {
                     isRedisDown = true;
                     redisDownCounter.increment();
-                    logger.warn("Redis down - refus du token");
+                    logger.warn("Redis down - passage en mode fallback JWT");
                 }
-                return Mono.just(false);
+                // En cas d'erreur Redis, on accepte le token puisque le JWT est déjà validé
+                return Mono.just(true);
             })
             .defaultIfEmpty(false);
     }
